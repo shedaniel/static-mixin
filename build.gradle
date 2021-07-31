@@ -1,0 +1,118 @@
+plugins {
+    id "java"
+    id "idea"
+    id "eclipse"
+    id "maven-publish"
+    id "java-gradle-plugin"
+    id "com.github.johnrengelman.shadow" version "7.0.0"
+    id "org.cadixdev.licenser" version "0.6.1"
+}
+
+group "me.shedaniel"
+
+def runNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "9999"
+
+version = base_version + "." + runNumber
+
+logger.lifecycle(":building java-version-bridge v${version}")
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.encoding = "UTF-8"
+    it.options.release = 8
+}
+
+repositories {
+    maven { url "https://maven.architectury.dev/" }
+    maven { url "https://repo.spongepowered.org/repository/maven-public/" }
+    gradlePluginPortal()
+    mavenLocal()
+}
+
+configurations {
+    include
+    compileOnly.extendsFrom include
+}
+
+license {
+    header = rootProject.file("HEADER")
+
+    ext {
+        name = "shedaniel"
+        year = "2021"
+    }
+
+    include "**/*.java"
+}
+
+gradlePlugin {
+    plugins {
+        javaversionbridge {
+            id = "me.shedaniel.static-mixin"
+            implementationClass = "me.shedaniel.staticmixin.StaticMixinPlugin"
+        }
+    }
+}
+
+dependencies {
+    implementation gradleApi()
+    def asm_version = '9.2'
+    include "org.ow2.asm:asm:$asm_version"
+    include "org.ow2.asm:asm-analysis:$asm_version"
+    include "org.ow2.asm:asm-commons:$asm_version"
+    include "org.ow2.asm:asm-tree:$asm_version"
+    include "org.ow2.asm:asm-util:$asm_version"
+    include "com.google.code.gson:gson:2.2.4"
+    include "org.spongepowered:mixin:0.8.4"
+    include "dev.architectury:architectury-transformer:5.1.55"
+    include "com.google.guava:guava:21.0"
+}
+
+jar {
+    archiveClassifier = "raw"
+}
+
+shadowJar {
+    relocate "dev.architectury", "me.shedaniel.staticmixin.architectury"
+    relocate "org.objectweb", "me.shedaniel.staticmixin.objectweb"
+    relocate "org.spongepowered", "me.shedaniel.staticmixin.spongepowered"
+    relocate "com.google", "me.shedaniel.staticmixin.google"
+    configurations = [project.configurations.include]
+    archiveClassifier = ""
+}
+
+assemble.dependsOn shadowJar
+
+tasks.withType(GenerateModuleMetadata) {
+    enabled = false
+}
+
+publishing {
+    publications {
+        main(MavenPublication) {
+            groupId "me.shedaniel.static-mixin"
+            artifactId "me.shedaniel.static-mixin.gradle.plugin"
+            
+            shadow.component it
+        }
+
+        snapshot(MavenPublication) {
+            groupId "me.shedaniel.static-mixin"
+            artifactId "me.shedaniel.static-mixin.gradle.plugin"
+            version base_version + "-SNAPSHOT"
+
+            shadow.component it
+        }
+    }
+
+    repositories {
+        if (System.getenv("MAVEN_PASS") != null) {
+            maven {
+                url = "https://deploy.shedaniel.me/"
+                credentials {
+                    username = "shedaniel"
+                    password = System.getenv("MAVEN_PASS")
+                }
+            }
+        }
+    }
+}
