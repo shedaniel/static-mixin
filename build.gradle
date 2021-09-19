@@ -1,3 +1,22 @@
+import dev.architectury.transformer.Transform
+import dev.architectury.transformer.input.OpenedFileAccess
+import dev.architectury.transformer.shadowed.impl.org.zeroturnaround.zip.commons.FileUtils
+
+import java.util.function.Predicate
+
+buildscript {
+    repositories {
+        maven { url "https://maven.architectury.dev/" }
+        mavenLocal()
+        google()
+    }
+
+    dependencies {
+        classpath 'com.guardsquare:proguard-gradle:7.1.0'
+        classpath "dev.architectury:architectury-transformer:5.1.55"
+    }
+}
+
 plugins {
     id "java"
     id "idea"
@@ -80,7 +99,20 @@ shadowJar {
     archiveClassifier = ""
 }
 
+def proguardJarOut = file(shadowJar.archiveFile.get().getAsFile().absolutePath.replace(".jar", "-runtime.jar"))
+
+task runtimeJar(type: DefaultTask, dependsOn: jar) {
+    doLast {
+        FileUtils.copyFile(shadowJar.archiveFile.get().getAsFile(), proguardJarOut)
+
+        try (OpenedFileAccess access = OpenedFileAccess.ofJar(proguardJarOut.toPath())) {
+            access.deleteFiles((Predicate<String>) { String path -> !Transform.trimSlashes(path).startsWith("me/shedaniel/staticmixin/spongepowered/asm/mixin") })
+        }
+    }
+}
+
 assemble.dependsOn shadowJar
+assemble.dependsOn runtimeJar
 
 tasks.withType(GenerateModuleMetadata) {
     enabled = false
@@ -88,6 +120,16 @@ tasks.withType(GenerateModuleMetadata) {
 
 publishing {
     publications {
+        runtime(MavenPublication) {
+            groupId "me.shedaniel.static-mixin"
+            artifactId "static-mixin-runtime"
+
+            artifact(proguardJarOut) {
+                classifier ""
+                builtBy runtimeJar
+            }
+        }
+
         main(MavenPublication) {
             groupId "me.shedaniel.static-mixin"
             artifactId "me.shedaniel.static-mixin.gradle.plugin"
